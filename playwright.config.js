@@ -11,6 +11,7 @@ module.exports = defineConfig({
   },
   webServer: {
     command: 'npm run start',
+    cwd: __dirname,
     url: 'http://127.0.0.1:3000',
     timeout: 120000,
     reuseExistingServer: true,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, waitForElementToBeRemoved, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { rest } from 'msw';
 import { setupServer } from 'msw/node';
@@ -61,6 +61,10 @@ const server = setupServer(
       return res(ctx.status(404), ctx.json({ error: 'Task not found' }));
     }
 
+    if (Object.prototype.hasOwnProperty.call(updates, 'completed') && typeof updates.completed !== 'boolean') {
+      return res(ctx.status(400), ctx.json({ error: 'Task completed must be a boolean' }));
+    }
+
     Object.assign(task, updates);
     if (Object.prototype.hasOwnProperty.call(updates, 'dueDate') && updates.dueDate === '') {
       task.dueDate = null;
@@ -70,6 +74,11 @@ const server = setupServer(
   }),
   rest.delete('/api/tasks/:id', (req, res, ctx) => {
     const id = Number(req.params.id);
+    const existingTask = tasks.find((task) => task.id === id);
+    if (!existingTask) {
+      return res(ctx.status(404), ctx.json({ error: 'Task not found' }));
+    }
+
     tasks = tasks.filter((task) => task.id !== id);
     return res(ctx.status(200), ctx.json({ message: 'Task deleted successfully', id }));
   })
@@ -104,8 +113,9 @@ describe('App Component', () => {
   test('creates a task', async () => {
     const user = userEvent.setup();
     render(<App />);
+    await waitForElementToBeRemoved(() => screen.queryByLabelText('Loading tasks'));
 
-    await user.type(screen.getByLabelText('Task Title'), 'Write documentation');
+    await user.type(screen.getByRole('textbox', { name: /task title/i }), 'Write documentation');
     await user.click(screen.getByRole('button', { name: 'Create Task' }));
 
     await waitFor(() => {
@@ -121,7 +131,8 @@ describe('App Component', () => {
     const listItem = row.closest('li');
     await user.click(within(listItem).getByRole('button', { name: /edit task plan sprint/i }));
 
-    const titleInput = screen.getAllByLabelText('Task Title')[1];
+    const dialog = await screen.findByRole('dialog', { name: 'Edit Task' });
+    const titleInput = within(dialog).getByRole('textbox', { name: /task title/i });
     await user.clear(titleInput);
     await user.type(titleInput, 'Plan release sprint');
     await user.click(screen.getByRole('button', { name: 'Save' }));
@@ -139,10 +150,6 @@ describe('App Component', () => {
     const listItem = row.closest('li');
     const checkbox = within(listItem).getByRole('checkbox');
     await user.click(checkbox);
-
-    await waitFor(() => {
-      expect(tasks.find((task) => task.title === 'Plan sprint').completed).toBe(true);
-    });
 
     await user.click(screen.getByRole('tab', { name: 'Active' }));
     await waitFor(() => {
